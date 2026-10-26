@@ -1,0 +1,249 @@
+.recy-portal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  overflow-y: auto;
+  padding: 20px;
+  background: rgba(7, 5, 4, 0.99);
+  color: #ebd7c3;
+  font-family: inherit;
+}
+
+.recy-portal-page {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 20px;
+  border: 1px solid #4a3022;
+  border-radius: 18px;
+  background: #120c09;
+  box-shadow: 0 20px 80px #000;
+}
+
+.recy-portal-page h1,
+.recy-portal-page h2,
+.recy-portal-page h3 {
+  color: #d4a359;
+}
+
+.recy-portal-page h1 {
+  margin: 0 0 8px;
+  font-size: 1.45rem;
+}
+
+.recy-portal-page h2 {
+  margin: 22px 0 10px;
+  font-size: 1.1rem;
+}
+
+.recy-portal-page p {
+  line-height: 1.55;
+}
+
+.recy-portal-page button,
+.recy-portal-page input,
+.recy-portal-page select,
+.recy-portal-page textarea {
+  font: inherit;
+}
+
+.recy-portal-page button {
+  cursor: pointer;
+}
+
+.recy-portal-header,
+.recy-portal-row,
+.recy-portal-actions,
+.recy-portal-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.recy-portal-header {
+  margin-bottom: 18px;
+  border-bottom: 1px solid #352319;
+  padding-bottom: 14px;
+}
+
+.recy-portal-actions,
+.recy-portal-tabs {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin: 12px 0;
+}
+
+.recy-portal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 14px;
+}
+
+.recy-portal-card {
+  border: 1px solid #3b291d;
+  border-radius: 12px;
+  padding: 14px;
+  background: #1a110a;
+}
+
+.recy-portal-field {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  color: #d4a359;
+  font-size: 0.9rem;
+}
+
+.recy-portal-field input,
+.recy-portal-field select,
+.recy-portal-field textarea {
+  width: 100%;
+  border: 1px solid #4a3022;
+  border-radius: 8px;
+  padding: 10px;
+  background: #0b0705;
+  color: #ebd7c3;
+}
+
+.recy-portal-field textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.recy-portal-button {
+  border: 1px solid #7f5a2e;
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: #2b1b0d;
+  color: #f1d5a4;
+}
+
+.recy-portal-button:hover {
+  background: #442b13;
+}
+
+.recy-portal-button-primary {
+  background: #d4a359;
+  color: #160e06;
+  font-weight: 700;
+}
+
+.recy-portal-button-danger {
+  border-color: #7e3434;
+  color: #ffcaca;
+}
+
+.recy-portal-message {
+  margin: 12px 0;
+  border-left: 3px solid #d4a359;
+  padding: 9px 12px;
+  background: #21170e;
+}
+
+.recy-portal-message-error {
+  border-color: #e36f6f;
+  color: #ffd0d0;
+}
+
+.recy-portal-map {
+  position: relative;
+  min-height: 320px;
+  overflow: hidden;
+  border: 1px solid #5a4935;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 90px, #a38b6230 91px 92px, transparent 93px 160px, #a38b6230 161px 162px, transparent 163px),
+    linear-gradient(90deg, transparent 49.8%, #ffffff30 50%, transparent 50.2%),
+    linear-gradient(transparent 49.8%, #ffffff30 50%, transparent 50.2%),
+    repeating-linear-gradient(0deg, #ffffff0b 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(90deg, #ffffff0b 0 1px, transparent 1px 30px),
+    #15100c;
+  cursor: crosshair;
+}
+
+.recy-portal-map::after {
+  position: absolute;
+  top: 50%;
+  left: 5%;
+  width: 90%;
+  height: 3px;
+  transform: rotate(-3deg);
+  background: #0ea5e955;
+  content: "";
+}
+
+.recy-portal-map-label {
+  position: absolute;
+  z-index: 1;
+  top: 12px;
+  left: 12px;
+  color: #ebd7c3aa;
+  font-size: 0.72rem;
+  pointer-events: none;
+}
+
+.recy-portal-marker {
+  position: absolute;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #f7d27a;
+  border-radius: 50%;
+  background: #d4a359;
+  box-shadow: 0 0 7px 4px #d4a35999, 0 0 22px 9px #d4a35955;
+  cursor: pointer;
+}
+
+.recy-portal-marker-uefs {
+  border-color: #8af0b2;
+  background: #3bce7d;
+  box-shadow: 0 0 7px 4px #3bce7d99, 0 0 22px 9px #3bce7d55;
+}
+
+.recy-portal-marker-selection {
+  border-color: #fff;
+  background: #fff;
+  box-shadow: 0 0 9px 5px #ffffffbb, 0 0 25px 11px #ffffff66;
+  pointer-events: none;
+}
+
+.recy-portal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 10px 0;
+  color: #ebd7c3aa;
+  font-size: 0.8rem;
+}
+
+.recy-portal-muted {
+  color: #ebd7c399;
+}
+
+.recy-portal-nav-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: rgb(255 255 255 / 70%);
+  text-align: left;
+}
+
+.recy-portal-nav-button:hover {
+  background: rgb(255 255 255 / 7%);
+  color: #d4a359;
+}
+
+@media (max-width: 600px) {
+  .recy-portal-backdrop {
+    padding: 8px;
+  }
+
+  .recy-portal-page {
+    padding: 14px;
+  }
+
+  .recy-portal-header {
+    align-items: flex-start;
+  }
+}
