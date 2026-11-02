@@ -206,7 +206,7 @@ values
   ('EcoPoint Tomba', 'Tomba, Feira de Santana - BA', -12.285, -38.95, 'Tomba', 'feira', array['Computadores / Notebooks','Celulares / Tablets','Pilhas / Baterias'], 'Consulte o local antes de ir', '(75) 3601-2306')
 on conflict (name, point_type) do nothing;
 
--- Create the admin account in Supabase Auth first, then run this bootstrap query:
+-- Create the admin account in Supabase Auth first, then add its auth.users UUID:
 -- insert into public.app_admins (user_id)
--- select id from auth.users where email = 'adm@uefs.ecomp.tfh'
+-- select '<AUTH_USER_UUID>'::uuid
 -- on conflict (user_id) do nothing;

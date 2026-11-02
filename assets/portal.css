@@ -201,6 +201,242 @@
   box-shadow: 0 0 7px 4px #3bce7d99, 0 0 22px 9px #3bce7d55;
 }
 
+.recy-uefs-map-frame {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #5a4935;
+  border-radius: 14px;
+  padding: 8px;
+  background:
+    repeating-linear-gradient(0deg, #ffffff08 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(90deg, #ffffff08 0 1px, transparent 1px 30px),
+    #15100c;
+  box-shadow: inset 0 0 24px #d4a35912, 0 8px 26px #0008;
+}
+
+.recy-uefs-campus-map {
+  position: relative;
+  height: min(60vh, 600px);
+  min-height: 340px;
+  border: 1px solid #5a4935;
+  border-radius: 9px;
+  background: #15100c;
+  cursor: grab;
+  touch-action: none;
+}
+
+.recy-uefs-campus-map.recy-uefs-map-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.recy-uefs-campus-map::after {
+  display: none;
+}
+
+.recy-uefs-map-content > svg {
+  display: block;
+  width: 1000px;
+  height: 600px;
+  pointer-events: none;
+}
+
+.recy-uefs-map-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1000px;
+  height: 600px;
+  transform: translate3d(
+      calc(-50% + var(--uefs-map-pan-x, 0px)),
+      calc(-50% + var(--uefs-map-pan-y, 0px)),
+      0
+    )
+    scale(var(--uefs-map-zoom, 1));
+  transform-origin: center;
+  transition: transform 180ms ease-out;
+  will-change: transform;
+}
+
+.recy-uefs-map-dragging .recy-uefs-map-content {
+  transition: none;
+}
+
+.recy-uefs-map-controls {
+  position: absolute;
+  z-index: 1001;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #5a4935;
+  border-radius: 8px;
+  padding: 5px;
+  background: #100b08ed;
+  box-shadow: 0 3px 12px #0009;
+}
+
+.recy-uefs-zoom-button,
+.recy-uefs-zoom-reset {
+  min-width: 32px;
+  min-height: 32px;
+  border: 1px solid #7f5a2e;
+  border-radius: 5px;
+  background: #2b1b0d;
+  color: #f1d5a4;
+  font: inherit;
+  font-weight: 700;
+}
+
+.recy-uefs-zoom-reset {
+  min-width: 48px;
+  padding: 0 6px;
+  font-size: 0.72rem;
+}
+
+.recy-uefs-zoom-level {
+  min-width: 42px;
+  color: #ebd7c3;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.recy-uefs-zoom-button:hover:not(:disabled),
+.recy-uefs-zoom-reset:hover:not(:disabled) {
+  background: #442b13;
+}
+
+.recy-uefs-zoom-button:disabled,
+.recy-uefs-zoom-reset:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.recy-uefs-zoom-button:focus-visible,
+.recy-uefs-zoom-reset:focus-visible {
+  outline: 2px solid #8af0b2;
+  outline-offset: 2px;
+}
+
+.recy-uefs-map-label {
+  top: 16px;
+  left: 62px;
+  z-index: 1000;
+  border: 1px solid #5a4935;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #100b08e8;
+  color: #d4a359;
+  letter-spacing: 0.06em;
+}
+
+.recy-uefs-custom-marker {
+  z-index: 4;
+  margin: 0;
+  padding: 0;
+  transform: translate(-50%, -50%);
+}
+
+.recy-uefs-custom-marker-primary {
+  width: 22px;
+  height: 22px;
+}
+
+.recy-uefs-admin-map {
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 5 / 3;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+
+.recy-uefs-admin-map::after {
+  display: none;
+}
+
+.recy-uefs-admin-map .recy-uefs-map-content {
+  inset: 0;
+  top: auto;
+  left: auto;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  transition: none;
+}
+
+.recy-uefs-admin-map .recy-uefs-map-content > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.recy-uefs-custom-marker-primary::after {
+  position: absolute;
+  top: 50%;
+  left: 18px;
+  width: max-content;
+  transform: translateY(-50%);
+  border: 1px solid #8af0b2;
+  border-radius: 6px;
+  padding: 4px 7px;
+  background: #100b08ed;
+  box-shadow: 0 2px 8px #0009;
+  color: #b8ffd0;
+  content: attr(data-label);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.recy-uefs-custom-marker:hover {
+  scale: 1.18;
+}
+
+.recy-uefs-custom-marker[aria-pressed="true"] {
+  border-color: #fff3cd;
+  box-shadow: 0 0 9px 5px #3bce7daa, 0 0 26px 12px #3bce7d66;
+}
+
+.recy-uefs-custom-marker:focus-visible {
+  outline: 3px solid #fff3cd;
+  outline-offset: 4px;
+}
+
+.recy-uefs-point-details {
+  margin: 14px 0;
+}
+
+.recy-uefs-point-details h3 {
+  margin-top: 0;
+}
+
+.recy-uefs-campus-map + .recy-portal-legend {
+  color: #ebd7c3aa;
+}
+
+.recy-uefs-attribution-link {
+  position: absolute;
+  z-index: 1000;
+  bottom: 8px;
+  left: 12px;
+  border: 1px solid #5a4935;
+  border-radius: 5px;
+  padding: 3px 6px;
+  background: #100b08e8;
+  color: #d4a359;
+  font-size: 0.65rem;
+  text-decoration: none;
+}
+
+.recy-uefs-attribution-link:hover {
+  color: #f1d5a4;
+  text-decoration: underline;
+}
+
 .recy-portal-marker-selection {
   border-color: #fff;
   background: #fff;
@@ -245,5 +481,11 @@
 
   .recy-portal-header {
     align-items: flex-start;
+  }
+
+  .recy-uefs-custom-marker-primary::after {
+    top: -8px;
+    left: 50%;
+    transform: translate(-50%, -100%);
   }
 }
