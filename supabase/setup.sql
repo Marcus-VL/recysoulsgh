@@ -165,6 +165,9 @@ alter table public.survey_feedback enable row level security;
 drop policy if exists "Anyone submits anonymous survey feedback" on public.survey_feedback;
 create policy "Anyone submits anonymous survey feedback" on public.survey_feedback
   for insert to anon, authenticated with check (true);
+drop policy if exists "Admins read anonymous survey feedback" on public.survey_feedback;
+create policy "Admins read anonymous survey feedback" on public.survey_feedback
+  for select to authenticated using (public.is_app_admin());
 
 create or replace view public.admin_feedback_summary as
 select previous_disposal, knows_collection_point, nullif(btrim(known_point), '') as known_point,
@@ -193,6 +196,7 @@ grant select, insert, update, delete on public.collection_points, public.content
 grant select on public.app_admins to authenticated;
 revoke all on public.survey_feedback from public, anon, authenticated;
 grant insert on public.survey_feedback to anon, authenticated;
+grant select on public.survey_feedback to authenticated;
 grant select on public.admin_feedback_summary to authenticated;
 
 insert into public.collection_points
@@ -205,6 +209,24 @@ values
   ('EcoPoint Feira VII', 'Av. de Canal, 892 - Feira VII', -12.29, -38.97, 'Feira VII', 'feira', array['Pilhas / Baterias','Celulares / Tablets','Eletrodomésticos Pequenos','Cabos / Carregadores'], 'Segunda a Sexta - 08:00 às 17:00', '(75) 3601-2305'),
   ('EcoPoint Tomba', 'Tomba, Feira de Santana - BA', -12.285, -38.95, 'Tomba', 'feira', array['Computadores / Notebooks','Celulares / Tablets','Pilhas / Baterias'], 'Consulte o local antes de ir', '(75) 3601-2306')
 on conflict (name, point_type) do nothing;
+
+insert into public.collection_points
+  (id, name, address, latitude, longitude, region, point_type, accepted_materials, hours, phone, notes)
+values
+  (
+    '00000000-0000-4000-8000-000000000003',
+    'MP.3 - Laboratório de Eletrônica',
+    'Módulo Prático 3 · Campus da UEFS',
+    -12.1999817,
+    -38.9714984,
+    'Campus UEFS',
+    'uefs',
+    '{}',
+    '',
+    '',
+    ''
+  )
+on conflict do nothing;
 
 -- Create the admin account in Supabase Auth first, then add its auth.users UUID:
 -- insert into public.app_admins (user_id)

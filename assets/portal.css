@@ -86,6 +86,40 @@
   background: #1a110a;
 }
 
+.recy-point-admin-section {
+  margin-top: 20px;
+  border: 1px solid #4a3022;
+  border-radius: 14px;
+  padding: 16px;
+  background: #120c09;
+}
+
+.recy-point-admin-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #d4a359;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.recy-point-admin-heading h2 {
+  margin: 0;
+  font-size: inherit;
+}
+
+.recy-portal-empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px dashed #5a4935;
+  border-radius: 10px;
+  padding: 16px;
+  color: #ebd7c399;
+  text-align: center;
+}
+
 .recy-portal-field {
   display: grid;
   gap: 6px;
@@ -477,6 +511,11 @@
 
   .recy-portal-page {
     padding: 14px;
+  }
+
+  .recy-point-admin-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .recy-portal-header {

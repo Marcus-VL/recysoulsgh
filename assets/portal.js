@@ -12,7 +12,10 @@ const isConfigured =
   supabasePublishableKey.length > 10;
 const feedbackQueueKey = "recy_anonymous_feedback_queue";
 const adminSessionKey = "recy_admin_session";
+const userSessionKey = "recy_user_session";
 const completionKey = "recy_onboarding_completed";
+const exampleUefsPointId = "00000000-0000-4000-8000-000000000003";
+const exampleUefsPointName = "MP.3 - Laboratório de Eletrônica";
 let collectionPoints = [];
 let learningEntries = [];
 let activeAdminTab = "points";
@@ -321,7 +324,7 @@ async function flushQueuedFeedback() {
 function openOnboarding(user, { queued = false } = {}) {
   const { page } = portalPage(
     "Antes de entrar no RecySouls",
-    `Olá, ${user.nome || "reciclador"}! Suas respostas serão anônimas e usadas apenas em totais gerais.`,
+    `Olá, ${user.nome || "reciclador"}! Suas respostas são anônimas. A administração poderá consultar as respostas sem identificação para planejar melhorias nos pontos de coleta.`,
   );
   const pointsPanel = node("section", "recy-portal-card");
   pointsPanel.append(
@@ -474,6 +477,82 @@ async function signInAdmin(email, password) {
   return session;
 }
 
+async function signInUser(email, password) {
+  const data = await request("/auth/v1/token?grant_type=password", {
+    method: "POST",
+    body: { email, password },
+  });
+  if (!data?.access_token || !data.user?.id) {
+    throw new Error("O Supabase não retornou uma sessão válida.");
+  }
+  return data;
+}
+
+async function signUpUser(email, password) {
+  return request("/auth/v1/signup", {
+    method: "POST",
+    body: {
+      email,
+      password,
+      data: { display_name: "Reciclador" },
+    },
+  });
+}
+
+function authUserFromResponse(authData) {
+  if (authData?.user?.id) return authData.user;
+  if (authData?.id) return authData;
+  return null;
+}
+
+async function ensureUserProfile(authUser, accessToken) {
+  const profiles = await request(
+    tablePath("profiles", {
+      select: "display_name",
+      user_id: `eq.${authUser.id}`,
+    }),
+    { token: accessToken },
+  );
+  if (Array.isArray(profiles) && profiles.length) {
+    return profiles[0].display_name;
+  }
+
+  const displayName = authUser.user_metadata?.display_name || "Reciclador";
+  await request("/rest/v1/profiles", {
+    method: "POST",
+    body: { user_id: authUser.id, display_name: displayName },
+    token: accessToken,
+  });
+  return displayName;
+}
+
+async function continueWithUserSession(authData) {
+  const authUser = authUserFromResponse(authData);
+  if (!authData?.access_token || !authUser?.id) return false;
+  const displayName = await ensureUserProfile(authUser, authData.access_token);
+  sessionStorage.setItem(
+    userSessionKey,
+    JSON.stringify({
+      accessToken: authData.access_token,
+      refreshToken: authData.refresh_token,
+      userId: authUser.id,
+    }),
+  );
+  const user = {
+    ...createAppUser(displayName, authUser.email),
+    id: authUser.id,
+    nome: displayName,
+  };
+  if (onboardingDone(user)) {
+    localStorage.setItem("ecomap_user", JSON.stringify(user));
+    localStorage.setItem("ecomap_logged_in", "true");
+    location.reload();
+  } else {
+    openOnboarding(user);
+  }
+  return true;
+}
+
 async function isAdminSessionValid(session) {
   if (!session?.accessToken || !session?.userId) return false;
   const admins = await request(
@@ -486,13 +565,13 @@ async function isAdminSessionValid(session) {
   return Array.isArray(admins) && admins.length > 0;
 }
 
-function openAdminLogin(errorText = "") {
+function openAdminLogin(errorText = "", emailValue = "") {
   const { page } = portalPage(
     "Acesso administrativo",
     "Entre com a conta administradora autorizada.",
   );
   const form = node("form");
-  const email = input("email");
+  const email = input("email", emailValue);
   email.autocomplete = "username";
   email.required = true;
   const password = input("password", "");
@@ -508,7 +587,7 @@ function openAdminLogin(errorText = "") {
     status.textContent = "Verificando acesso...";
     try {
       await signInAdmin(email.value.trim(), password.value);
-      await openAdmin();
+      await openAdmin(email.value.trim());
     } catch (error) {
       status.textContent = error.message;
       status.className = "recy-portal-message recy-portal-message-error";
@@ -539,6 +618,7 @@ function closePortal() {
     appRoot.inert = false;
     appRoot.removeAttribute("aria-hidden");
   }
+  installAuthScreen();
 }
 
 function coordinateToPercent(point) {
@@ -896,8 +976,8 @@ function addSelectionMarker(map, latitude, longitude) {
   markerLayer?.append(marker);
 }
 
-function renderPointForm(container, existing = null) {
-  const values = pointFields(existing || {});
+function renderPointForm(container, existing = null, initialType = "uefs") {
+  const values = pointFields(existing || { point_type: initialType });
   const form = node("form", "recy-portal-card");
   form.append(node("h3", "", existing ? "Editar ponto de coleta" : "Adicionar ponto de coleta"));
   const name = input("text", values.name, "Ex.: MP.4 - Laboratório de Eletrônica");
@@ -1015,53 +1095,72 @@ function renderPointForm(container, existing = null) {
 }
 
 function renderPointAdmin(container) {
-  const actions = node("div", "recy-portal-actions");
-  const grid = node("div", "recy-portal-grid");
   const editor = node("div");
-  actions.append(
-    button("Adicionar ponto", () => renderPointForm(editor), "recy-portal-button recy-portal-button-primary"),
-  );
   container.append(
     node(
       "p",
       "recy-portal-muted",
-      "Selecione “Ponto da UEFS”, clique no local do campus e informe um nome, como “MP.4 - Laboratório de Eletrônica”. O marcador e as coordenadas serão salvos junto ao ponto.",
+      "Os pontos são organizados por localização. Escolha um ponto para editar ou adicione um novo pelo mapa correspondente.",
     ),
-    actions,
     editor,
-    grid,
   );
-  for (const point of collectionPoints) {
-    const card = node("article", "recy-portal-card");
-    card.append(
-      node("h3", "", point.name),
-      node("p", "recy-portal-muted", `${point.point_type === "uefs" ? "UEFS" : "Feira"} · ${point.region || point.address}`),
-      node("p", "", point.address),
-      node("p", "recy-portal-muted", `${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`),
+
+  const pointTypes = [
+    ["feira", "Pontos de Feira", "Pontos cadastrados em Feira de Santana."],
+    ["uefs", "Pontos da UEFS", "Pontos cadastrados no campus da UEFS."],
+  ];
+  for (const [type, title, description] of pointTypes) {
+    const section = node("section", "recy-point-admin-section");
+    const heading = node("div", "recy-point-admin-heading");
+    heading.append(
+      node("h2", "", title),
+      button(
+        "Adicionar ponto",
+        () => renderPointForm(editor, null, type),
+        "recy-portal-button recy-portal-button-primary",
+      ),
     );
-    const actions = node("div", "recy-portal-actions");
-    actions.append(
-      button("Editar", () => {
-        editor.replaceChildren();
-        renderPointForm(editor, point);
-        editor.scrollIntoView({ behavior: "smooth", block: "start" });
-      }),
-      button("Excluir", async () => {
-        if (!confirm(`Excluir o ponto "${point.name}"?`)) return;
-        try {
-          await request(tablePath("collection_points", { id: `eq.${point.id}` }), {
-            method: "DELETE",
-            token: currentSession()?.accessToken,
-          });
-          await loadPublicData();
-          renderAdmin();
-        } catch (error) {
-          message(container, error.message, true);
-        }
-      }, "recy-portal-button recy-portal-button-danger"),
-    );
-    card.append(actions);
-    grid.append(card);
+    section.append(heading, node("p", "recy-portal-muted", description));
+    const grid = node("div", "recy-portal-grid");
+    const points = collectionPoints.filter((point) => point.point_type === type);
+    if (!points.length) {
+      grid.append(node("p", "recy-portal-empty", "Nenhum ponto cadastrado."));
+    }
+
+    for (const point of points) {
+      const card = node("article", "recy-portal-card");
+      card.append(
+        node("h3", "", point.name),
+        node("p", "recy-portal-muted", `${type === "uefs" ? "UEFS" : "Feira"} · ${point.region || point.address}`),
+        node("p", "", point.address),
+        node("p", "recy-portal-muted", `${Number(point.latitude).toFixed(6)}, ${Number(point.longitude).toFixed(6)}`),
+      );
+      const actions = node("div", "recy-portal-actions");
+      actions.append(
+        button("Editar", () => {
+          editor.replaceChildren();
+          renderPointForm(editor, point);
+          editor.scrollIntoView({ behavior: "smooth", block: "start" });
+        }),
+        button("Excluir", async () => {
+          if (!confirm(`Excluir o ponto "${point.name}"?`)) return;
+          try {
+            await request(tablePath("collection_points", { id: `eq.${point.id}` }), {
+              method: "DELETE",
+              token: currentSession()?.accessToken,
+            });
+            await loadPublicData();
+            renderAdmin();
+          } catch (error) {
+            message(container, error.message, true);
+          }
+        }, "recy-portal-button recy-portal-button-danger"),
+      );
+      card.append(actions);
+      grid.append(card);
+    }
+    section.append(grid);
+    container.append(section);
   }
 }
 
@@ -1203,22 +1302,26 @@ async function renderFeedbackAdmin(container) {
     node(
       "p",
       "recy-portal-muted",
-      "As respostas não incluem nome, e-mail, conta ou coordenadas. Esta tela apresenta apenas agrupamentos e totais.",
+      "As respostas são anônimas: esta tela não exibe nome, e-mail, conta ou coordenadas. A administração pode consultar as respostas e os locais mencionados para planejar melhorias.",
     ),
   );
   const summary = node("div", "recy-portal-grid");
   container.append(summary);
   try {
-    const rows = await request(tablePath("admin_feedback_summary", {
-      select: "previous_disposal,knows_collection_point,known_point,response_count",
-      order: "response_count.desc",
-    }), { token: currentSession()?.accessToken });
-    if (!Array.isArray(rows) || rows.length === 0) {
-      summary.append(node("p", "recy-portal-muted", "Ainda não há respostas."));
-      return;
-    }
+    const [rows, responses] = await Promise.all([
+      request(tablePath("admin_feedback_summary", {
+        select: "previous_disposal,knows_collection_point,known_point,response_count",
+        order: "response_count.desc",
+      }), { token: currentSession()?.accessToken }),
+      request(tablePath("survey_feedback", {
+        select: "previous_disposal,knows_collection_point,known_point,created_at",
+        order: "created_at.desc",
+        limit: "500",
+      }), { token: currentSession()?.accessToken }),
+    ]);
+    const groupedRows = Array.isArray(rows) ? rows : [];
     const grouped = new Map();
-    for (const row of rows) {
+    for (const row of groupedRows) {
       const key = JSON.stringify([
         row.previous_disposal,
         row.knows_collection_point,
@@ -1241,9 +1344,13 @@ async function renderFeedbackAdmin(container) {
       ecoponto: "Ponto de coleta",
       outro: "Outro destino",
     };
-    const totalCard = node("article", "recy-portal-card");
-    totalCard.append(node("h3", "", "Respostas recebidas"), node("p", "", String(total)));
-    summary.append(totalCard);
+    if (total === 0) {
+      summary.append(node("p", "recy-portal-muted", "Ainda não há respostas."));
+    } else {
+      const totalCard = node("article", "recy-portal-card");
+      totalCard.append(node("h3", "", "Respostas recebidas"), node("p", "", String(total)));
+      summary.append(totalCard);
+    }
     for (const [destination, count] of totals) {
       const card = node("article", "recy-portal-card");
       card.append(
@@ -1269,6 +1376,47 @@ async function renderFeedbackAdmin(container) {
       }
       summary.append(card);
     }
+
+    const responseSection = node("section", "recy-feedback-responses");
+    responseSection.append(
+      node("h2", "", "Respostas individuais (anônimas)"),
+      node(
+        "p",
+        "recy-portal-muted",
+        "Exibindo até 500 respostas mais recentes. Os locais informados podem ajudar a priorizar futuras atualizações.",
+      ),
+    );
+    const responseGrid = node("div", "recy-portal-grid");
+    const responseRows = Array.isArray(responses) ? responses : [];
+    if (responseRows.length === 0) {
+      responseGrid.append(node("p", "recy-portal-empty", "Ainda não há respostas para exibir."));
+    } else {
+      for (const response of responseRows) {
+        const card = node("article", "recy-portal-card");
+        const submittedAt = response.created_at
+          ? new Date(response.created_at).toLocaleString("pt-BR")
+          : "Data não informada";
+        const disposal = destinationLabels[response.previous_disposal] || response.previous_disposal || "Não informado";
+        const knowsLabel =
+          response.knows_collection_point === true
+            ? "Sim"
+            : response.knows_collection_point === false
+              ? "Não"
+              : "Não respondeu";
+        card.append(
+          node("p", "recy-portal-muted", submittedAt),
+          node("h3", "", "Destino anterior"),
+          node("p", "", disposal),
+          node("h3", "", "Conhece um ponto de coleta?"),
+          node("p", "", knowsLabel),
+          node("h3", "", "Local mencionado"),
+          node("p", "", response.known_point || "Nenhum local informado"),
+        );
+        responseGrid.append(card);
+      }
+    }
+    responseSection.append(responseGrid);
+    container.append(responseSection);
   } catch (error) {
     message(container, error.message, true);
   }
@@ -1277,7 +1425,7 @@ async function renderFeedbackAdmin(container) {
 function renderAdmin() {
   const { page, header } = portalPage(
     "Administração do RecySouls",
-    "Gerencie pontos do mapa e conteúdo educativo. Os dados pessoais dos usuários não são exibidos aqui.",
+    "Gerencie pontos e conteúdo educativo e consulte respostas anônimas do questionário. Dados pessoais não são exibidos aqui.",
   );
   header.append(
     button("Sair do painel", () => {
@@ -1291,7 +1439,7 @@ function renderAdmin() {
   const tabDefinitions = [
     ["points", "Pontos e mapa"],
     ["content", "Filosofia e Pergaminhos"],
-    ["feedback", "Respostas gerais"],
+    ["feedback", "Questionário"],
   ];
   for (const [key, label] of tabDefinitions) {
     tabs.append(
@@ -1307,7 +1455,7 @@ function renderAdmin() {
   else renderFeedbackAdmin(content);
 }
 
-async function openAdmin() {
+async function openAdmin(emailValue = "") {
   const session = currentSession();
   try {
     if (!(await isAdminSessionValid(session))) {
@@ -1335,7 +1483,7 @@ async function openAdmin() {
     applySharedContent(learningEntries);
     renderAdmin();
   } catch (error) {
-    openAdminLogin(error.message);
+    openAdminLogin(error.message, emailValue);
   }
 }
 
@@ -1479,14 +1627,6 @@ async function openUefsPoints() {
       marker.setAttribute("aria-pressed", String(markerPoint === point));
     });
   };
-  const mod3Point = {
-    name: "MP.3 - Laboratório de Eletrônica",
-    address: "Módulo Prático 3 · Campus da UEFS",
-    accepted_materials: [],
-    hours: "",
-    latitude: -12.1999817,
-    longitude: -38.9714984,
-  };
   const legend = node(
     "p",
     "recy-portal-legend",
@@ -1505,11 +1645,11 @@ async function openUefsPoints() {
       Number.isFinite(Number(point.latitude)) &&
       Number.isFinite(Number(point.longitude)),
   );
-  [mod3Point, ...uefsPoints].forEach((point) => {
+  uefsPoints.forEach((point) => {
     const position = uefsPointToPercent(point);
     const marker = node(
       "button",
-      `recy-portal-marker recy-portal-marker-uefs recy-uefs-custom-marker${point === mod3Point ? " recy-uefs-custom-marker-primary" : ""}`,
+      `recy-portal-marker recy-portal-marker-uefs recy-uefs-custom-marker${point.id === exampleUefsPointId || point.name === exampleUefsPointName ? " recy-uefs-custom-marker-primary" : ""}`,
     );
     marker.type = "button";
     marker.style.left = `${position.x}%`;
@@ -1518,14 +1658,22 @@ async function openUefsPoints() {
     marker.setAttribute("aria-label", point.name);
     marker.setAttribute("aria-controls", details.id);
     marker.setAttribute("aria-pressed", "false");
-    if (point === mod3Point) {
-      marker.setAttribute("data-label", "MP.3 - Laboratório de Eletrônica");
+    if (point.id === exampleUefsPointId || point.name === exampleUefsPointName) {
+      marker.setAttribute("data-label", point.name);
     }
     marker.addEventListener("click", () => showPointDetails(point));
     mapContent.append(marker);
     pointMarkers.set(point, marker);
   });
-  showPointDetails(mod3Point);
+  if (uefsPoints.length) {
+    showPointDetails(uefsPoints[0]);
+  } else {
+    details.append(
+      node("h3", "", "Nenhum ponto cadastrado"),
+      node("p", "recy-portal-muted", "Ainda não há pontos de coleta cadastrados na UEFS."),
+    );
+    list.append(node("p", "recy-portal-empty", "Nenhum ponto cadastrado."));
+  }
   setMapZoom(zoom);
   if (loadError) {
     message(list, `Não foi possível carregar os pontos compartilhados: ${loadError}`, true);
@@ -1545,9 +1693,7 @@ async function openUefsPoints() {
         card.append(button("Ver informações", () => showPointDetails(point)));
         list.append(card);
       });
-    if (list.childElementCount) {
-      page.append(node("h2", "", "Outros pontos cadastrados"), list);
-    }
+    page.append(node("h2", "", "Pontos cadastrados"), list);
   } catch (error) {
     message(page, error.message, true);
   }
@@ -1611,11 +1757,8 @@ function updateMapMarkers() {
 function installNavigationButtons() {
   const nav = document.querySelector("#mainsystem-tabs");
   if (!nav) return;
-  if (!nav.querySelector("#recy-admin-nav")) {
-    const admin = button("Administração", () => openAdminLogin(), "recy-portal-nav-button w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all");
-    admin.id = "recy-admin-nav";
-    nav.append(admin);
-  }
+  nav.querySelector("#recy-admin-nav")?.remove();
+  document.getElementById("recy-admin-nav")?.remove();
   if (!nav.querySelector("#recy-uefs-nav")) {
     const uefs = button("Pontos da UEFS", openUefsPoints, "recy-portal-nav-button w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all");
     uefs.id = "recy-uefs-nav";
@@ -1647,48 +1790,222 @@ function createAppUser(name, email) {
   };
 }
 
-function onLoginSubmit(event) {
-  const form = event.target;
-  if (!(form instanceof HTMLFormElement) || portalRoot.contains(form)) return;
-  const nameInput = form.querySelector('input[type="text"]');
-  const emailInput = form.querySelector('input[type="email"]');
-  if (!nameInput || !emailInput) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  const name = nameInput.value.trim();
-  const email = emailInput.value.trim();
-  if (!name || !email) {
-    nameInput.reportValidity();
-    emailInput.reportValidity();
+function setAuthStatus(form, text, isError = false) {
+  if (!text) {
+    form.querySelector("[data-recy-auth-status]")?.remove();
     return;
   }
-  const user = createAppUser(name, email);
-  if (onboardingDone(user)) {
-    localStorage.setItem("ecomap_user", JSON.stringify(user));
-    localStorage.setItem("ecomap_logged_in", "true");
-    location.reload();
-    return;
+  let status = form.querySelector("[data-recy-auth-status]");
+  if (!status) {
+    status = node("p", "text-xs text-[#ebd7c3]/70 font-mono");
+    status.dataset.recyAuthStatus = "true";
+    form.append(status);
   }
-  openOnboarding(user);
+  status.textContent = text;
+  status.className = isError
+    ? "text-xs text-rose-300 font-mono"
+    : "text-xs text-[#ebd7c3]/70 font-mono";
 }
 
-function onGuestClick(event) {
-  const target = event.target instanceof Element ? event.target : null;
-  const guestButton = target?.closest("button");
-  if (!guestButton || guestButton.textContent.trim() !== "Convidado") return;
+function setAuthMode(screen, mode) {
+  const form = screen.querySelector("form[data-recy-user-auth]");
+  const emailInput = form?.querySelector('input[type="email"]');
+  const passwordInput = form?.querySelector('input[type="password"]');
+  const emailLabel = emailInput?.parentElement?.parentElement?.querySelector("label");
+  const passwordLabel = passwordInput?.parentElement?.parentElement?.querySelector("label");
+  const submit = form?.querySelector('button[type="submit"]');
+  const modeButton = screen.querySelector("[data-recy-auth-mode-toggle]");
+  const separator = Array.from(screen.querySelectorAll("span")).find(
+    (span) => span.textContent.trim() === "OU",
+  )?.parentElement;
+  const panel = screen.querySelector(".glass");
+  if (!form || !emailInput || !passwordInput || !emailLabel || !passwordLabel || !submit || !modeButton) {
+    return;
+  }
+
+  const isSignup = mode === "signup";
+  screen.dataset.authMode = mode;
+  emailLabel.textContent = isSignup ? "E-mail de cadastro" : "E-mail de login";
+  emailInput.placeholder = isSignup ? "Digite o e-mail da conta" : "seuemail@exemplo.com";
+  emailInput.autocomplete = isSignup ? "email" : "username";
+  emailInput.setAttribute("aria-label", emailLabel.textContent);
+  passwordLabel.textContent = "Senha";
+  passwordInput.placeholder = isSignup ? "Crie uma senha (mínimo 6 caracteres)" : "Digite sua senha";
+  passwordInput.autocomplete = isSignup ? "new-password" : "current-password";
+  passwordInput.minLength = isSignup ? 6 : 0;
+  passwordInput.setAttribute("aria-label", "Senha");
+  submit.textContent = isSignup ? "Cadastrar" : "Entrar";
+  modeButton.textContent = isSignup ? "Voltar para login" : "Cadastro";
+  modeButton.setAttribute(
+    "aria-label",
+    isSignup ? "Voltar para login" : "Abrir cadastro",
+  );
+  if (separator) separator.hidden = isSignup;
+  if (panel) {
+    panel.style.borderColor = isSignup ? "#17634f" : "#2d1e16";
+    panel.style.backgroundColor = isSignup ? "#0b1511" : "";
+    panel.style.boxShadow = isSignup
+      ? "0 0 34px rgba(34, 197, 94, 0.16)"
+      : "";
+  }
+  submit.style.background = isSignup
+    ? "linear-gradient(180deg, #16734f, #0d4c37)"
+    : "";
+  submit.style.borderColor = isSignup ? "#25805c" : "";
+  setAuthStatus(form, "");
+}
+
+function installAuthScreen() {
+  if (!appRoot || localStorage.getItem("ecomap_logged_in") === "true") {
+    portalRoot.querySelector("[data-recy-auth-screen]")?.remove();
+    if (appRoot) appRoot.hidden = false;
+    return;
+  }
+  if (portalRoot.querySelector("[data-recy-auth-screen]")) return;
+  const screen = appRoot.firstElementChild?.cloneNode(true);
+  const form = screen?.querySelector("form");
+  if (!screen || !form) return;
+  const inputs = form.querySelectorAll('input[type="text"], input[type="email"], input[type="password"]');
+  if (inputs.length < 2) return;
+  const emailInput = inputs[0];
+  const passwordInput = inputs[1];
+  const emailLabel = emailInput.parentElement?.parentElement?.querySelector("label");
+  const passwordLabel = passwordInput.parentElement?.parentElement?.querySelector("label");
+  if (!emailLabel || !passwordLabel) return;
+
+  emailLabel.textContent = "E-mail de login";
+  emailInput.type = "email";
+  emailInput.name = "email";
+  emailInput.autocomplete = "username";
+  emailInput.placeholder = "seuemail@exemplo.com";
+  emailInput.setAttribute("aria-label", "E-mail de login");
+
+  passwordLabel.textContent = "Senha";
+  passwordInput.type = "password";
+  passwordInput.name = "password";
+  passwordInput.autocomplete = "current-password";
+  passwordInput.placeholder = "Digite sua senha";
+  passwordInput.setAttribute("aria-label", "Senha");
+
+  const submit = form.querySelector('button[type="submit"]');
+  if (submit) submit.textContent = "Entrar";
+  form.dataset.recyUserAuth = "true";
+  const signupButton = Array.from(screen.querySelectorAll("button")).find(
+    (candidate) => candidate.textContent.trim() === "Convidado",
+  );
+  if (signupButton) {
+    signupButton.dataset.recyAuthModeToggle = "true";
+    const textNode = Array.from(signupButton.childNodes).find(
+      (child) => child.nodeType === Node.TEXT_NODE,
+    );
+    if (textNode) textNode.nodeValue = "Cadastro";
+  }
+  if (!screen.querySelector("[data-recy-admin-login]")) {
+    const adminAccess = button("Acesso administrativo", () => openAdminLogin());
+    adminAccess.dataset.recyAdminLogin = "true";
+    adminAccess.className =
+      "w-full mt-2 text-[10px] text-[#ebd7c3]/50 hover:text-[#d4a359] font-mono transition-colors";
+    screen.querySelector(".glass")?.append(adminAccess);
+  }
+  screen.dataset.recyAuthScreen = "true";
+  setAuthMode(screen, "login");
+  appRoot.hidden = true;
+  appRoot.setAttribute("aria-hidden", "true");
+  portalRoot.append(screen);
+}
+
+async function onLoginSubmit(event) {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || !form.matches("[data-recy-user-auth]")) return;
+  const emailInput = form.querySelector('input[type="email"]');
+  const passwordInput = form.querySelector('input[type="password"]');
+  if (!emailInput || !passwordInput) return;
   event.preventDefault();
   event.stopImmediatePropagation();
-  openOnboarding(createAppUser("Convidado", ""));
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+  if (!email || !password) {
+    emailInput.reportValidity();
+    passwordInput.reportValidity();
+    return;
+  }
+  const submit = form.querySelector('button[type="submit"]');
+  if (submit) submit.disabled = true;
+  const screen = form.closest("[data-recy-auth-screen]");
+  const isSignup = screen?.dataset.authMode === "signup";
+  if (isSignup && password.length < 6) {
+    setAuthStatus(form, "A senha deve ter pelo menos 6 caracteres.", true);
+    passwordInput.focus();
+    if (submit) submit.disabled = false;
+    return;
+  }
+  setAuthStatus(form, isSignup ? "Criando sua conta..." : "Entrando...");
+  try {
+    if (isSignup) {
+      const authData = await signUpUser(email, password);
+      const authUser = authUserFromResponse(authData);
+      if (authData?.access_token && authUser?.id) {
+        await ensureUserProfile(authUser, authData.access_token);
+        setAuthStatus(
+          form,
+          "Cadastro concluído. Volte para o login para entrar com essa conta.",
+        );
+      } else {
+        setAuthStatus(
+          form,
+          "O Supabase não liberou a sessão após o cadastro. Para dispensar confirmação por e-mail, desative “Confirm email” nas configurações de autenticação e tente novamente.",
+        );
+      }
+      passwordInput.value = "";
+    } else {
+      const authData = await signInUser(email, password);
+      await continueWithUserSession(authData);
+    }
+  } catch (error) {
+    setAuthStatus(form, error.message, true);
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+function onAuthModeToggle(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const modeButton = target?.closest("[data-recy-auth-mode-toggle]");
+  if (!modeButton) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  const screen = modeButton.closest("[data-recy-auth-screen]");
+  if (!screen) return;
+  const nextMode = screen.dataset.authMode === "signup" ? "login" : "signup";
+  setAuthMode(screen, nextMode);
+}
+
+function clearUserSessionOnLogout(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  const logoutButton = target?.closest("button");
+  if (
+    !logoutButton ||
+    portalRoot.contains(logoutButton) ||
+    !/^sair(?: da conta)?$/i.test(logoutButton.textContent.trim())
+  ) {
+    return;
+  }
+  sessionStorage.removeItem(userSessionKey);
 }
 
 document.addEventListener("submit", onLoginSubmit, true);
-document.addEventListener("click", onGuestClick, true);
+document.addEventListener("click", onAuthModeToggle, true);
+document.addEventListener("click", clearUserSessionOnLogout, true);
 
 const appObserver = new MutationObserver(() => {
+  installAuthScreen();
   installNavigationButtons();
   updateMapMarkers();
 });
-if (appRoot) appObserver.observe(appRoot, { childList: true, subtree: true });
+if (appRoot) {
+  appObserver.observe(appRoot, { childList: true, subtree: true });
+  installAuthScreen();
+}
 
 void flushQueuedFeedback();
 void loadPublicData().catch((error) => {
