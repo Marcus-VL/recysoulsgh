@@ -144,6 +144,50 @@
   resize: vertical;
 }
 
+.recy-material-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recy-material-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #4a3022;
+  border-radius: 7px;
+  padding: 7px 9px;
+  background: #0b0705;
+  color: #ebd7c3;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.recy-material-option:has(input:checked) {
+  border-color: #d4a359;
+  background: #d4a35920;
+}
+
+.recy-material-option input {
+  accent-color: #d4a359;
+}
+
+.recy-material-category-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.recy-material-category-controls input {
+  border: 1px solid #4a3022;
+  border-radius: 8px;
+  padding: 9px;
+  background: #0b0705;
+  color: #ebd7c3;
+}
+
 .recy-portal-button {
   border: 1px solid #7f5a2e;
   border-radius: 8px;
@@ -527,4 +571,5 @@
     left: 50%;
     transform: translate(-50%, -100%);
   }
+
 }

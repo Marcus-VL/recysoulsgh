@@ -16,10 +16,16 @@ const userSessionKey = "recy_user_session";
 const completionKey = "recy_onboarding_completed";
 const exampleUefsPointId = "00000000-0000-4000-8000-000000000003";
 const exampleUefsPointName = "MP.3 - Laboratório de Eletrônica";
+const defaultMaterialCategories = [
+  "Celulares / Tablets",
+  "Pilhas / Baterias",
+  "Computadores / Notebooks",
+  "Monitores / TVs",
+  "Impressoras / Scanners",
+];
 let collectionPoints = [];
 let learningEntries = [];
 let activeAdminTab = "points";
-let mapMarkerSignature = "";
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -196,6 +202,11 @@ async function loadPublicData() {
   window.RecySoulsCollectionPoints = collectionPoints.map((point) => ({
     ...point,
     nome: point.name,
+    endereco: point.address,
+    regiao: point.region || (point.point_type === "uefs" ? "UEFS" : "Feira de Santana"),
+    materiais_aceitos: point.accepted_materials || [],
+    horario: point.hours,
+    telefone: point.phone,
   }));
   learningEntries = Array.isArray(entries) ? entries : [];
   applySharedContent(learningEntries);
@@ -873,6 +884,16 @@ function pointFields(point = {}) {
   };
 }
 
+function materialCategories(existingMaterials = []) {
+  return Array.from(
+    new Set([
+      ...defaultMaterialCategories,
+      ...collectionPoints.flatMap((point) => point.accepted_materials || []),
+      ...existingMaterials,
+    ].map((material) => material.trim()).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right, "pt-BR"));
+}
+
 function renderAdminMap(map, fields) {
   map.replaceChildren();
   const isUefsMap = fields.pointType?.value === "uefs";
@@ -995,7 +1016,76 @@ function renderPointForm(container, existing = null, initialType = "uefs") {
     [["uefs", "Ponto da UEFS"], ["feira", "Ponto de Feira de Santana"]],
     values.point_type,
   );
-  const materials = textarea(values.accepted_materials, "Celulares, pilhas, computadores...");
+  const selectedMaterials = new Set(
+    values.accepted_materials.split(",").map((material) => material.trim()).filter(Boolean),
+  );
+  const formCategories = new Set(
+    values.accepted_materials.split(",").map((material) => material.trim()).filter(Boolean),
+  );
+  const materialOptions = node("div", "recy-material-options");
+  const categoryControls = node("div", "recy-material-category-controls");
+  const addCategory = button(
+    "+ Adicionar categoria",
+    () => {
+      categoryInput.hidden = !categoryInput.hidden;
+      addCategoryButton.hidden = categoryInput.hidden;
+      if (!categoryInput.hidden) categoryInput.focus();
+    },
+  );
+  const categoryInput = input("text", "", "Ex.: Eletrodomésticos");
+  categoryInput.hidden = true;
+  categoryInput.maxLength = 80;
+  const addCategoryButton = button("Adicionar", () => {
+    const category = categoryInput.value.trim();
+    if (!category) {
+      categoryInput.focus();
+      return;
+    }
+    const existing = Array.from(materialOptions.querySelectorAll('input[type="checkbox"]')).find(
+      (checkbox) => checkbox.value.toLocaleLowerCase("pt-BR") === category.toLocaleLowerCase("pt-BR"),
+    );
+    if (existing) {
+      existing.checked = true;
+      selectedMaterials.add(existing.value);
+      formCategories.add(existing.value);
+    } else {
+      selectedMaterials.add(category);
+      formCategories.add(category);
+      renderMaterialOptions();
+    }
+    categoryInput.value = "";
+    categoryInput.hidden = true;
+    addCategoryButton.hidden = true;
+  });
+  addCategoryButton.hidden = true;
+  categoryInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addCategoryButton.click();
+    }
+  });
+  categoryControls.append(addCategory, categoryInput, addCategoryButton);
+  const renderMaterialOptions = () => {
+    materialOptions.replaceChildren();
+    for (const category of materialCategories([
+      ...formCategories,
+      ...selectedMaterials,
+    ])) {
+      const checkbox = input("checkbox");
+      checkbox.value = category;
+      checkbox.checked = selectedMaterials.has(category);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selectedMaterials.add(category);
+        else selectedMaterials.delete(category);
+      });
+      const label = node("label", "recy-material-option");
+      label.append(checkbox, node("span", "", category));
+      materialOptions.append(label);
+    }
+  };
+  renderMaterialOptions();
+  const materialsField = node("div", "recy-portal-field");
+  materialsField.append(node("span", "", "Materiais aceitos"), materialOptions);
   const lat = input("number", values.latitude);
   lat.step = "0.000001";
   lat.min = "-90";
@@ -1024,7 +1114,8 @@ function renderPointForm(container, existing = null, initialType = "uefs") {
     field("Endereço ou referência", address),
     field("Região", region),
     field("Categoria", type),
-    field("Materiais aceitos (separados por vírgulas)", materials),
+    materialsField,
+    categoryControls,
     field("Latitude", lat),
     field("Longitude", lon),
     map,
@@ -1061,10 +1152,7 @@ function renderPointForm(container, existing = null, initialType = "uefs") {
       point_type: type.value,
       latitude: Number(lat.value),
       longitude: Number(lon.value),
-      accepted_materials: materials.value
-        .split(/[\n,]/)
-        .map((item) => item.trim())
-        .filter(Boolean),
+      accepted_materials: Array.from(selectedMaterials),
       hours: hours.value.trim(),
       phone: phone.value.trim(),
       notes: notes.value.trim(),
@@ -1699,59 +1787,58 @@ async function openUefsPoints() {
   }
 }
 
-function openPointDetails(point) {
-  const { page } = portalPage(point.name, point.address);
-  const actions = node("div", "recy-portal-actions");
-  actions.append(button("Voltar ao app", closePortal));
-  const details = node("article", "recy-portal-card");
-  details.append(
-    node("p", "", point.point_type === "uefs" ? "Ponto de coleta UEFS" : "Ponto de coleta em Feira de Santana"),
-    node("p", "", point.accepted_materials?.join(", ") || "Materiais não informados"),
-    node("p", "recy-portal-muted", point.hours || ""),
-    node("p", "recy-portal-muted", point.phone || ""),
+function installMainMapZoom(map) {
+  const zoom = Number(map.dataset.recyMapZoom) || 1;
+  const controlPanel = Array.from(map.children).find((child) =>
+    child.classList.contains("bottom-3") && child.classList.contains("right-3"),
   );
-  page.append(actions, details);
+  const statusPanel = Array.from(map.children).find((child) =>
+    child.classList.contains("top-3") && child.classList.contains("left-3"),
+  );
+  for (const child of map.children) {
+    if (child === controlPanel || child === statusPanel) {
+      child.style.transform = "";
+      child.style.transformOrigin = "";
+      continue;
+    }
+    if (child.classList.contains("marker")) {
+      child.dataset.recyBaseLeft = child.dataset.recyBaseLeft || child.style.left;
+      child.dataset.recyBaseTop = child.dataset.recyBaseTop || child.style.top;
+      const baseLeft = Number.parseFloat(child.dataset.recyBaseLeft);
+      const baseTop = Number.parseFloat(child.dataset.recyBaseTop);
+      child.style.left = `${50 + (baseLeft - 50) * zoom}%`;
+      child.style.top = `${50 + (baseTop - 50) * zoom}%`;
+      child.style.scale = String(zoom);
+      continue;
+    }
+    child.style.transform = `scale(${zoom})`;
+    child.style.transformOrigin = "center";
+  }
+  if (map.dataset.recyMapZoomControlsInstalled) return;
+  map.dataset.recyMapZoomControlsInstalled = "true";
+  map.addEventListener(
+    "click",
+    (event) => {
+      const target = event.target instanceof Element ? event.target.closest("button") : null;
+      if (!target || !map.contains(target)) return;
+      const direction = target.textContent.trim();
+      if (direction !== "+" && direction !== "−" && direction !== "-") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const currentZoom = Number(map.dataset.recyMapZoom) || 1;
+      const increment = direction === "+" ? 0.25 : -0.25;
+      map.dataset.recyMapZoom = String(Math.max(1, Math.min(3, currentZoom + increment)));
+      installMainMapZoom(map);
+    },
+    true,
+  );
 }
 
 function updateMapMarkers() {
   const map = document.querySelector("#map-tab .map-container");
   if (!map) return;
-  const signature = JSON.stringify(
-    collectionPoints.map((point) => [
-      point.id,
-      point.name,
-      point.point_type,
-      point.latitude,
-      point.longitude,
-    ]),
-  );
-  if (signature === mapMarkerSignature && map.querySelector(".recy-portal-map-layer")) return;
-  mapMarkerSignature = signature;
-  let layer = map.querySelector(".recy-portal-map-layer");
-  if (!layer) {
-    layer = node("div", "recy-portal-map-layer");
-    layer.style.cssText = "position:absolute;inset:0;z-index:4;pointer-events:none";
-    map.append(layer);
-  }
-  layer.replaceChildren();
-  map.querySelectorAll(".marker[title]").forEach((marker) => {
-    marker.style.display = collectionPoints.length ? "none" : "";
-  });
-  collectionPoints.forEach((point) => {
-    const position = coordinateToPercent(point);
-    const marker = node(
-      "button",
-      `recy-portal-marker${point.point_type === "uefs" ? " recy-portal-marker-uefs" : ""}`,
-    );
-    marker.type = "button";
-    marker.style.left = `${position.x}%`;
-    marker.style.top = `${position.y}%`;
-    marker.style.pointerEvents = "auto";
-    marker.title = point.name;
-    marker.setAttribute("aria-label", point.name);
-    marker.addEventListener("click", () => openPointDetails(point));
-    layer.append(marker);
-  });
+  map.querySelector(".recy-portal-map-layer")?.remove();
+  installMainMapZoom(map);
 }
 
 function installNavigationButtons() {
