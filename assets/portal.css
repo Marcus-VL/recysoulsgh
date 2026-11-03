@@ -279,6 +279,46 @@
   box-shadow: 0 0 7px 4px #3bce7d99, 0 0 22px 9px #3bce7d55;
 }
 
+.recy-main-map-dragging {
+  cursor: grabbing !important;
+}
+
+.recy-main-map-dragging > .marker {
+  transition: none !important;
+}
+
+.recy-main-uefs-marker {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #b8ffd0;
+  border-radius: 50%;
+  background: #3bce7d;
+  box-shadow: 0 0 8px 4px #3bce7d99, 0 0 22px 9px #3bce7d55;
+  color: transparent;
+  font-size: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.recy-main-uefs-marker::after {
+  position: absolute;
+  top: 50%;
+  left: 18px;
+  transform: translateY(-50%);
+  border: 1px solid #8af0b2;
+  border-radius: 6px;
+  padding: 4px 7px;
+  background: #100b08ed;
+  color: #b8ffd0;
+  content: "UEFS";
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 .recy-uefs-map-frame {
   position: relative;
   overflow: hidden;

@@ -1789,6 +1789,8 @@ async function openUefsPoints() {
 
 function installMainMapZoom(map) {
   const zoom = Number(map.dataset.recyMapZoom) || 1;
+  const panX = Number(map.dataset.recyMapPanX) || 0;
+  const panY = Number(map.dataset.recyMapPanY) || 0;
   const controlPanel = Array.from(map.children).find((child) =>
     child.classList.contains("bottom-3") && child.classList.contains("right-3"),
   );
@@ -1801,43 +1803,129 @@ function installMainMapZoom(map) {
       child.style.transformOrigin = "";
       continue;
     }
+    if (child.classList.contains("recy-portal-uefs-indicator-layer")) {
+      child.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+      child.style.transformOrigin = "center";
+      continue;
+    }
     if (child.classList.contains("marker")) {
       child.dataset.recyBaseLeft = child.dataset.recyBaseLeft || child.style.left;
       child.dataset.recyBaseTop = child.dataset.recyBaseTop || child.style.top;
       const baseLeft = Number.parseFloat(child.dataset.recyBaseLeft);
       const baseTop = Number.parseFloat(child.dataset.recyBaseTop);
-      child.style.left = `${50 + (baseLeft - 50) * zoom}%`;
-      child.style.top = `${50 + (baseTop - 50) * zoom}%`;
+      const bounds = map.getBoundingClientRect();
+      child.style.left = `${50 + (baseLeft - 50) * zoom + (bounds.width ? panX / bounds.width * 100 : 0)}%`;
+      child.style.top = `${50 + (baseTop - 50) * zoom + (bounds.height ? panY / bounds.height * 100 : 0)}%`;
       child.style.scale = String(zoom);
       continue;
     }
-    child.style.transform = `scale(${zoom})`;
+    child.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
     child.style.transformOrigin = "center";
   }
-  if (map.dataset.recyMapZoomControlsInstalled) return;
-  map.dataset.recyMapZoomControlsInstalled = "true";
-  map.addEventListener(
-    "click",
-    (event) => {
-      const target = event.target instanceof Element ? event.target.closest("button") : null;
-      if (!target || !map.contains(target)) return;
-      const direction = target.textContent.trim();
-      if (direction !== "+" && direction !== "−" && direction !== "-") return;
+  if (!map.dataset.recyMapInteractionsInstalled) {
+    map.dataset.recyMapInteractionsInstalled = "true";
+    map.style.touchAction = "none";
+    let activePointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let originX = 0;
+    let originY = 0;
+    map.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target instanceof Element ? event.target.closest("button") : null;
+        if (!target || !map.contains(target)) return;
+        const direction = target.textContent.trim();
+        if (direction !== "+" && direction !== "−" && direction !== "-") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const currentZoom = Number(map.dataset.recyMapZoom) || 1;
+        const increment = direction === "+" ? 0.25 : -0.25;
+        map.dataset.recyMapZoom = String(Math.max(1, Math.min(3, currentZoom + increment)));
+        installMainMapZoom(map);
+      },
+      true,
+    );
+    map.addEventListener("pointerdown", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        event.button !== 0 ||
+        target?.closest("button, .marker, .top-3.left-3, .bottom-3.right-3")
+      ) {
+        return;
+      }
+      activePointerId = event.pointerId;
+      startX = event.clientX;
+      startY = event.clientY;
+      originX = Number(map.dataset.recyMapPanX) || 0;
+      originY = Number(map.dataset.recyMapPanY) || 0;
+      map.setPointerCapture(activePointerId);
+      map.classList.add("recy-main-map-dragging");
       event.preventDefault();
-      event.stopImmediatePropagation();
-      const currentZoom = Number(map.dataset.recyMapZoom) || 1;
-      const increment = direction === "+" ? 0.25 : -0.25;
-      map.dataset.recyMapZoom = String(Math.max(1, Math.min(3, currentZoom + increment)));
+    });
+    map.addEventListener("pointermove", (event) => {
+      if (event.pointerId !== activePointerId) return;
+      const bounds = map.getBoundingClientRect();
+      const zoomValue = Number(map.dataset.recyMapZoom) || 1;
+      const maxPanX = bounds.width * (zoomValue / 2);
+      const maxPanY = bounds.height * (zoomValue / 2);
+      map.dataset.recyMapPanX = String(Math.max(-maxPanX, Math.min(maxPanX, originX + event.clientX - startX)));
+      map.dataset.recyMapPanY = String(Math.max(-maxPanY, Math.min(maxPanY, originY + event.clientY - startY)));
       installMainMapZoom(map);
-    },
-    true,
+    });
+    const finishDrag = (event) => {
+      if (event.pointerId !== activePointerId) return;
+      activePointerId = null;
+      map.classList.remove("recy-main-map-dragging");
+      if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
+    };
+    map.addEventListener("pointerup", finishDrag);
+    map.addEventListener("pointercancel", finishDrag);
+    map.addEventListener("lostpointercapture", finishDrag);
+    map.addEventListener(
+      "wheel",
+      (event) => {
+        if (!event.ctrlKey) return;
+        event.preventDefault();
+        const currentZoom = Number(map.dataset.recyMapZoom) || 1;
+        map.dataset.recyMapZoom = String(
+          Math.max(1, Math.min(3, currentZoom + (event.deltaY < 0 ? 0.25 : -0.25))),
+        );
+        installMainMapZoom(map);
+      },
+      { passive: false },
+    );
+  }
+}
+
+function installUefsMapIndicator(map) {
+  let layer = map.querySelector(".recy-portal-uefs-indicator-layer");
+  if (layer) return;
+  layer = node("div", "recy-portal-uefs-indicator-layer");
+  layer.style.cssText = "position:absolute;inset:0;z-index:5;pointer-events:none";
+  const position = coordinateToPercent({
+    latitude: -12.1999817,
+    longitude: -38.9714984,
+  });
+  const marker = button(
+    "",
+    openUefsPoints,
+    "recy-portal-marker recy-portal-marker-uefs recy-main-uefs-marker",
   );
+  marker.style.left = `${position.x}%`;
+  marker.style.top = `${position.y}%`;
+  marker.style.pointerEvents = "auto";
+  marker.title = "Abrir pontos da UEFS";
+  marker.setAttribute("aria-label", "UEFS — ver pontos de coleta do campus");
+  layer.append(marker);
+  map.append(layer);
 }
 
 function updateMapMarkers() {
   const map = document.querySelector("#map-tab .map-container");
   if (!map) return;
   map.querySelector(".recy-portal-map-layer")?.remove();
+  installUefsMapIndicator(map);
   installMainMapZoom(map);
 }
 
