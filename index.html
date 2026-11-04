@@ -3,11 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RecySouls - Logística Reversa de Almas</title>
+    <title>RecySouls - Em busca dos ecopoints</title>
+    <script>
+      try {
+        const currentUser = JSON.parse(localStorage.getItem("ecomap_user") || "null");
+        const guestId = localStorage.getItem("recy_guest_user_id") || "user-guest";
+        const points = Number(currentUser?.pontuacao);
+        localStorage.setItem("recy_guest_user_id", guestId);
+        localStorage.setItem(
+          "ecomap_user",
+          JSON.stringify({
+            id: guestId,
+            nome: "Reciclador",
+            email: "",
+            pontuacao: Number.isFinite(points) ? points : 180,
+          }),
+        );
+        localStorage.setItem("ecomap_logged_in", "true");
+        sessionStorage.removeItem("recy_user_session");
+      } catch (error) {
+        console.error("Não foi possível iniciar o modo visitante:", error);
+      }
+    </script>
     <script type="module" crossorigin src="./assets/index-DYGy5Hjc.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-yhm3DE7h.css">
-    <link rel="stylesheet" href="./assets/portal.css">
-    <script type="module" src="./assets/portal.js"></script>
+    <link rel="stylesheet" href="./assets/portal.css?v=16">
+    <script type="module" src="./assets/portal.js?v=16"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -6,14 +6,6 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.onboarding_responses (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  previous_disposal text not null,
-  knows_collection_point boolean not null default false,
-  known_point text,
-  created_at timestamptz not null default now()
-);
-
 create table if not exists public.collection_points (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -35,13 +27,16 @@ create table if not exists public.collection_points (
 
 create table if not exists public.point_suggestions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
   name text not null,
   address text not null default '',
   notes text not null default '',
   status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
   created_at timestamptz not null default now()
 );
+
+alter table public.point_suggestions
+  alter column user_id drop not null;
 
 create table if not exists public.destination_reports (
   id uuid primary key default gen_random_uuid(),
@@ -50,17 +45,6 @@ create table if not exists public.destination_reports (
   material text not null default '',
   notes text not null default '',
   created_at timestamptz not null default now()
-);
-
-create table if not exists public.survey_feedback (
-  id uuid primary key default gen_random_uuid(),
-  previous_disposal text not null check (
-    previous_disposal in ('lixo_comum', 'guardo', 'loja_assistencia', 'ecoponto', 'outro')
-  ),
-  knows_collection_point boolean,
-  known_point text,
-  created_at timestamptz not null default now(),
-  check (known_point is null or length(known_point) <= 300)
 );
 
 create table if not exists public.content_entries (
@@ -108,7 +92,6 @@ revoke all on function public.is_app_admin() from public;
 grant execute on function public.is_app_admin() to anon, authenticated;
 
 alter table public.profiles enable row level security;
-alter table public.onboarding_responses enable row level security;
 alter table public.collection_points enable row level security;
 alter table public.point_suggestions enable row level security;
 alter table public.destination_reports enable row level security;
@@ -126,17 +109,6 @@ create policy "Users update their profile" on public.profiles
   for update to authenticated using (user_id = (select auth.uid()))
   with check (user_id = (select auth.uid()));
 
-drop policy if exists "Users read their onboarding" on public.onboarding_responses;
-create policy "Users read their onboarding" on public.onboarding_responses
-  for select to authenticated using (user_id = (select auth.uid()));
-drop policy if exists "Users submit their onboarding" on public.onboarding_responses;
-create policy "Users submit their onboarding" on public.onboarding_responses
-  for insert to authenticated with check (user_id = (select auth.uid()));
-drop policy if exists "Users update their onboarding" on public.onboarding_responses;
-create policy "Users update their onboarding" on public.onboarding_responses
-  for update to authenticated using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()));
-
 drop policy if exists "Anyone reads collection points" on public.collection_points;
 create policy "Anyone reads collection points" on public.collection_points
   for select to anon, authenticated using (true);
@@ -151,7 +123,16 @@ create policy "Users read their point suggestions" on public.point_suggestions
 drop policy if exists "Users submit point suggestions" on public.point_suggestions;
 create policy "Users submit point suggestions" on public.point_suggestions
   for insert to authenticated with check (user_id = (select auth.uid()));
-drop policy if exists "Admins manage point suggestions" on public.point_suggestions;
+drop policy if exists "Anyone submits anonymous point suggestions" on public.point_suggestions;
+create policy "Anyone submits anonymous point suggestions" on public.point_suggestions
+  for insert to anon with check (user_id is null and status = 'pending');
+drop policy if exists "Admins read point suggestions" on public.point_suggestions;
+create policy "Admins read point suggestions" on public.point_suggestions
+  for select to authenticated using (public.is_app_admin());
+drop policy if exists "Admins update point suggestions" on public.point_suggestions;
+create policy "Admins update point suggestions" on public.point_suggestions
+  for update to authenticated using (public.is_app_admin())
+  with check (public.is_app_admin());
 
 drop policy if exists "Users read their destination reports" on public.destination_reports;
 create policy "Users read their destination reports" on public.destination_reports
@@ -161,20 +142,26 @@ create policy "Users submit destination reports" on public.destination_reports
   for insert to authenticated with check (user_id = (select auth.uid()));
 drop policy if exists "Admins read destination reports" on public.destination_reports;
 
-alter table public.survey_feedback enable row level security;
-drop policy if exists "Anyone submits anonymous survey feedback" on public.survey_feedback;
-create policy "Anyone submits anonymous survey feedback" on public.survey_feedback
-  for insert to anon, authenticated with check (true);
-drop policy if exists "Admins read anonymous survey feedback" on public.survey_feedback;
-create policy "Admins read anonymous survey feedback" on public.survey_feedback
-  for select to authenticated using (public.is_app_admin());
+do $$
+begin
+  if to_regclass('public.onboarding_responses') is not null then
+    execute 'drop policy if exists "Users read their onboarding" on public.onboarding_responses';
+    execute 'drop policy if exists "Users submit their onboarding" on public.onboarding_responses';
+    execute 'drop policy if exists "Users update their onboarding" on public.onboarding_responses';
+    execute 'alter table public.onboarding_responses enable row level security';
+    execute 'revoke all on table public.onboarding_responses from public, anon, authenticated';
+  end if;
 
-create or replace view public.admin_feedback_summary as
-select previous_disposal, knows_collection_point, nullif(btrim(known_point), '') as known_point,
-       count(*)::bigint as response_count
-from public.survey_feedback
-where public.is_app_admin()
-group by previous_disposal, knows_collection_point, nullif(btrim(known_point), '');
+  if to_regclass('public.survey_feedback') is not null then
+    execute 'drop policy if exists "Anyone submits anonymous survey feedback" on public.survey_feedback';
+    execute 'drop policy if exists "Admins read anonymous survey feedback" on public.survey_feedback';
+    execute 'alter table public.survey_feedback enable row level security';
+    execute 'revoke all on table public.survey_feedback from public, anon, authenticated';
+  end if;
+end;
+$$;
+
+drop view if exists public.admin_feedback_summary;
 
 drop policy if exists "Anyone reads published learning content" on public.content_entries;
 create policy "Anyone reads published learning content" on public.content_entries
@@ -189,44 +176,28 @@ create policy "Admins can identify themselves" on public.app_admins
   for select to authenticated using (user_id = (select auth.uid()));
 
 grant select on public.collection_points, public.content_entries to anon, authenticated;
-grant select, insert, update on public.profiles, public.onboarding_responses to authenticated;
-grant select, insert on public.point_suggestions, public.destination_reports to authenticated;
-grant update on public.point_suggestions to authenticated;
+grant select, insert, update on public.profiles to authenticated;
+revoke all on public.point_suggestions from public, anon, authenticated;
+grant insert on public.point_suggestions to anon;
+grant select, insert, update on public.point_suggestions to authenticated;
+grant select, insert on public.destination_reports to authenticated;
 grant select, insert, update, delete on public.collection_points, public.content_entries to authenticated;
 grant select on public.app_admins to authenticated;
-revoke all on public.survey_feedback from public, anon, authenticated;
-grant insert on public.survey_feedback to anon, authenticated;
-grant select on public.survey_feedback to authenticated;
-grant select on public.admin_feedback_summary to authenticated;
+delete from public.collection_points
+where point_type = 'feira'
+  and name in (
+    'EcoPoint Centro',
+    'EcoPoint Kalilândia',
+    'EcoPoint Avenida Nóide Cerqueira',
+    'EcoPoint Cidade Nova',
+    'EcoPoint Feira VII',
+    'EcoPoint Tomba'
+  );
 
-insert into public.collection_points
-  (name, address, latitude, longitude, region, point_type, accepted_materials, hours, phone)
-values
-  ('EcoPoint Centro', 'Av. Getúlio Vargas, 1420 (Próximo à Prefeitura) - Centro', -12.2664, -38.9663, 'Centro', 'feira', array['Celulares / Tablets','Computadores / Notebooks','Cabos / Carregadores','Pilhas / Baterias'], 'Segunda a Sexta - 08:00 às 17:00', '(75) 3601-2301'),
-  ('EcoPoint Kalilândia', 'Praça da Kalilândia, 48 - Kalilândia', -12.25, -38.95, 'Kalilândia', 'feira', array['Pilhas / Baterias','Celulares / Tablets','Monitores / TVs','Cabos / Carregadores'], 'Segunda a Sexta - 08:00 às 18:00', '(75) 3601-2302'),
-  ('EcoPoint Avenida Nóide Cerqueira', 'Av. Nóide Cerqueira, km 3 - SIM', -12.275, -38.92, 'SIM', 'feira', array['Computadores / Notebooks','Impressoras / Scanners','Eletrodomésticos Pequenos'], 'Segunda a Sábado - 09:00 às 19:00', '(75) 3601-2303'),
-  ('EcoPoint Cidade Nova', 'Av. Transnordestina, s/n (Próxima à UEFS) - Cidade Nova', -12.235, -38.955, 'Cidade Nova', 'feira', array['Computadores / Notebooks','Celulares / Tablets','Pilhas / Baterias','Monitores / TVs'], 'Segunda a Sexta - 07:30 às 17:30', '(75) 3601-2304'),
-  ('EcoPoint Feira VII', 'Av. de Canal, 892 - Feira VII', -12.29, -38.97, 'Feira VII', 'feira', array['Pilhas / Baterias','Celulares / Tablets','Eletrodomésticos Pequenos','Cabos / Carregadores'], 'Segunda a Sexta - 08:00 às 17:00', '(75) 3601-2305'),
-  ('EcoPoint Tomba', 'Tomba, Feira de Santana - BA', -12.285, -38.95, 'Tomba', 'feira', array['Computadores / Notebooks','Celulares / Tablets','Pilhas / Baterias'], 'Consulte o local antes de ir', '(75) 3601-2306')
-on conflict (name, point_type) do nothing;
-
-insert into public.collection_points
-  (id, name, address, latitude, longitude, region, point_type, accepted_materials, hours, phone, notes)
-values
-  (
-    '00000000-0000-4000-8000-000000000003',
-    'MP.3 - Laboratório de Eletrônica',
-    'Módulo Prático 3 · Campus da UEFS',
-    -12.1999817,
-    -38.9714984,
-    'Campus UEFS',
-    'uefs',
-    '{}',
-    '',
-    '',
-    ''
-  )
-on conflict do nothing;
+delete from public.collection_points
+where id = '00000000-0000-4000-8000-000000000003'
+  and name = 'MP.3 - Laboratório de Eletrônica'
+  and point_type = 'uefs';
 
 -- Create the admin account in Supabase Auth first, then add its auth.users UUID:
 -- insert into public.app_admins (user_id)
